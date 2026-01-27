@@ -18,7 +18,7 @@ export default function Home() {
             PrawnPlanner
           </h1>
           <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            SCE's appointment scheduler for interships.
+            SCEs appointment scheduler for interships.
           </p>
         </div>
         <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
