@@ -3,6 +3,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+  --color-lilac: #274a82;
+  --color-mauve: #9156fd;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -79,6 +84,12 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --color-lilac: #274a82;
+  --color-mauve: #9156fd;
+  --primary: var(--color-mauve);
+  --primary-foreground: oklch(0.985 0 0);
+  --primary: var(--color-lilac);
+  --primary-foreground: oklch(0.985 0 0);
 }
 
 .dark {
@@ -113,12 +124,16 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --color-lilac: #274a82;
+  --color-mauve: #9156fd;
+
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
