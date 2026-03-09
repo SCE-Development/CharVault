@@ -1,2 +1,3 @@
 # scheduling system
-1. come up with name tiffany and char
+
+start program with 'docker compose up'
