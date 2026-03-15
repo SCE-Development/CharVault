@@ -1,10 +1,10 @@
 import Link from "next/link";
-import CalendarView from "@/src/components/views/calendar-view";
+import CalendarView from "@/src/components/calendar-view";
 
 export default function calendar() {
   return (
     <div className="w-full h-dvh">
-      <div className=" flex flex-row w-full h-9/10">
+      <div className="flex flex-row w-full h-9/10">
         <div className="rounded-md p-4 m-4 w-1/3">user stuff
           <h1>Welcome back user</h1>
           <div className="bg-mauve p-4">
@@ -13,7 +13,7 @@ export default function calendar() {
             </Link>
           </div>
         </div>
-        <div className="rounded-md bg-pink-100 w-2/3 p-4 m-4">
+        <div className="rounded-md w-2/3 p-4 m-4 min-h-0 overflow-hidden flex">
           <CalendarView />
         </div>
       </div>
