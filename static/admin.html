@@ -7,7 +7,10 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <h1>Admin</h1>
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>Admin</h1>
+    <a href="index.html"><button>Home</button></a>
+  </div>
   <div id="banner" class="banner" hidden></div>
 
   <section id="key-section" hidden>
@@ -35,9 +38,10 @@
       Blue cells are your existing slots — click them to mark for removal (turns red).
       Grey cells are in the past.
     </p>
-    <div class="field">
-      <label for="week-start">Week starting</label>
-      <input id="week-start" type="date" />
+    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+      <button id="prev-week-btn">◀</button>
+      <strong id="week-label" style="min-width: 220px; text-align: center;"></strong>
+      <button id="next-week-btn">▶</button>
     </div>
     <div id="grid" class="grid"></div>
     <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
@@ -56,6 +60,7 @@
     let selectedCells = new Set();
     let removeCells = new Set();
     let dragMode = null;
+    let currentWeekStart = null;
 
     const HOUR_START = 9;
     const HOUR_END = 18;
@@ -82,10 +87,10 @@
 
     function renderGrid() {
       const grid = document.getElementById("grid");
-      const weekStartStr = document.getElementById("week-start").value;
-      if (!weekStartStr) return;
-      const weekStart = new Date(weekStartStr + "T00:00:00");
+      if (!currentWeekStart) return;
+      const weekStart = currentWeekStart;
       const duration = cfg.booking_duration_minutes;
+      updateWeekLabel(weekStart);
 
       grid.innerHTML = "";
 
@@ -164,6 +169,23 @@
         selectedCells.delete(key);
         cell.classList.remove("selected");
       }
+    }
+
+    function updateWeekLabel(weekStart) {
+      const end = new Date(weekStart);
+      end.setDate(end.getDate() + 6);
+      const fmt = (d) => d.toLocaleDateString([], { month: "short", day: "numeric" });
+      document.getElementById("week-label").textContent =
+        `${fmt(weekStart)} – ${fmt(end)}, ${weekStart.getFullYear()}`;
+    }
+
+    function shiftWeek(days) {
+      const next = new Date(currentWeekStart);
+      next.setDate(next.getDate() + days);
+      currentWeekStart = next;
+      selectedCells.clear();
+      removeCells.clear();
+      renderGrid();
     }
 
     document.addEventListener("mouseup", () => { dragMode = null; });
@@ -303,8 +325,7 @@
         showBanner(banner, "error", "Please enter your name first.");
         return;
       }
-      const weekStartStr = document.getElementById("week-start").value;
-      const weekStart = new Date(weekStartStr + "T00:00:00");
+      const weekStart = currentWeekStart;
       const duration = cfg.booking_duration_minutes;
 
       const toAdd = [];
@@ -348,10 +369,10 @@
       renderGrid();
     });
 
-    document.getElementById("week-start").addEventListener("change", renderGrid);
+    document.getElementById("prev-week-btn").addEventListener("click", () => shiftWeek(-7));
+    document.getElementById("next-week-btn").addEventListener("click", () => shiftWeek(7));
 
-    document.getElementById("interviewer-name").addEventListener("change", async (e) => {
-      setInterviewerName(e.target.value.trim());
+    document.getElementById("interviewer-name").addEventListener("change", async () => {
       await refresh();
     });
 
@@ -384,12 +405,10 @@
       document.getElementById("app-section").hidden = false;
       cfg = await fetch("api/config").then(r => r.json());
       document.getElementById("duration-label").textContent = cfg.booking_duration_minutes;
-      document.getElementById("interviewer-name").value = getInterviewerName();
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const day = today.getDay();
-      today.setDate(today.getDate() - day);
-      document.getElementById("week-start").value = today.toISOString().slice(0, 10);
+      today.setDate(today.getDate() - today.getDay());
+      currentWeekStart = today;
       await refresh();
     }
 

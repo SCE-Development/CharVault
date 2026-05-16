@@ -1,5 +1,4 @@
 const ADMIN_KEY_STORAGE = "adminKey";
-const INTERVIEWER_NAME_STORAGE = "interviewerName";
 
 function getAdminKey() {
   return window.localStorage.getItem(ADMIN_KEY_STORAGE) || "";
@@ -11,14 +10,6 @@ function setAdminKey(key) {
 
 function clearAdminKey() {
   window.localStorage.removeItem(ADMIN_KEY_STORAGE);
-}
-
-function getInterviewerName() {
-  return window.localStorage.getItem(INTERVIEWER_NAME_STORAGE) || "";
-}
-
-function setInterviewerName(name) {
-  window.localStorage.setItem(INTERVIEWER_NAME_STORAGE, name);
 }
 
 async function api(path, options = {}) {
