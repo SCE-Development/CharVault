@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin · SCE Internship Interview Booking</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>Admin</h1>
+  <div id="banner" class="banner" hidden></div>
+
+  <section>
+    <h2>Time slots</h2>
+    <p>
+      Drag to select windows. Each cell is one <span id="duration-label"></span>-minute slot.
+      Blue cells are existing slots — click them to mark for removal (turns red).
+    </p>
+    <div class="field">
+      <label for="week-start">Week starting</label>
+      <input id="week-start" type="date" />
+    </div>
+    <div id="grid" class="grid"></div>
+    <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+      <button id="save-btn" class="primary">Save changes</button>
+      <button id="clear-btn">Clear selection</button>
+    </div>
+  </section>
+
+  <section style="margin-top: 2rem;">
+    <h2>Bookings</h2>
+    <div id="bookings-table">Loading…</div>
+  </section>
+
+  <script src="app.js"></script>
+  <script>
+    let cfg = null;
+    let existingSlots = [];
+    let selectedCells = new Set();
+    let removeCells = new Set();
+    let dragMode = null;
+
+    const HOUR_START = 9;
+    const HOUR_END = 18;
+    const DAYS = 7;
+
+    function cellKey(dayIdx, minuteOffset) {
+      return `${dayIdx}:${minuteOffset}`;
+    }
+
+    function cellTimes(weekStart, dayIdx, minuteOffset, duration) {
+      const start = new Date(weekStart);
+      start.setDate(start.getDate() + dayIdx);
+      start.setHours(HOUR_START, 0, 0, 0);
+      start.setMinutes(minuteOffset);
+      const end = new Date(start);
+      end.setMinutes(end.getMinutes() + duration);
+      return { start, end };
+    }
+
+    function findExistingSlot(weekStart, dayIdx, minuteOffset, duration) {
+      const { start } = cellTimes(weekStart, dayIdx, minuteOffset, duration);
+      const iso = start.toISOString();
+      return existingSlots.find(s => new Date(s.start_time).getTime() === start.getTime());
+    }
+
+    function renderGrid() {
+      const grid = document.getElementById("grid");
+      const weekStartStr = document.getElementById("week-start").value;
+      if (!weekStartStr) return;
+      const weekStart = new Date(weekStartStr + "T00:00:00");
+      const duration = cfg.booking_duration_minutes;
+
+      grid.innerHTML = "";
+
+      const corner = document.createElement("div");
+      corner.className = "grid-cell header";
+      grid.appendChild(corner);
+
+      for (let d = 0; d < DAYS; d++) {
+        const date = new Date(weekStart);
+        date.setDate(date.getDate() + d);
+        const header = document.createElement("div");
+        header.className = "grid-cell header";
+        header.textContent = date.toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" });
+        grid.appendChild(header);
+      }
+
+      const totalMinutes = (HOUR_END - HOUR_START) * 60;
+      for (let m = 0; m < totalMinutes; m += duration) {
+        const label = document.createElement("div");
+        label.className = "grid-cell label";
+        const hours = HOUR_START + Math.floor(m / 60);
+        const mins = m % 60;
+        label.textContent = `${hours}:${mins.toString().padStart(2, "0")}`;
+        grid.appendChild(label);
+
+        for (let d = 0; d < DAYS; d++) {
+          const cell = document.createElement("div");
+          cell.className = "grid-cell";
+          const key = cellKey(d, m);
+          cell.dataset.key = key;
+
+          const existing = findExistingSlot(weekStart, d, m, duration);
+          if (existing) {
+            cell.classList.add("existing");
+            cell.dataset.existingId = existing.id;
+          }
+          if (selectedCells.has(key)) cell.classList.add("selected");
+          if (removeCells.has(String(cell.dataset.existingId))) cell.style.background = "#fdecea";
+
+          cell.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            if (existing) {
+              const id = String(existing.id);
+              if (removeCells.has(id)) {
+                removeCells.delete(id);
+                cell.style.background = "";
+              } else {
+                removeCells.add(id);
+                cell.style.background = "#fdecea";
+              }
+              return;
+            }
+            dragMode = selectedCells.has(key) ? "unselect" : "select";
+            applyDrag(cell, key);
+          });
+          cell.addEventListener("mouseover", () => {
+            if (!dragMode || existing) return;
+            applyDrag(cell, key);
+          });
+          grid.appendChild(cell);
+        }
+      }
+    }
+
+    function applyDrag(cell, key) {
+      if (dragMode === "select") {
+        selectedCells.add(key);
+        cell.classList.add("selected");
+      } else {
+        selectedCells.delete(key);
+        cell.classList.remove("selected");
+      }
+    }
+
+    document.addEventListener("mouseup", () => { dragMode = null; });
+
+    async function loadExisting() {
+      try {
+        const { slots } = await api("/timeslots");
+        existingSlots = slots;
+      } catch (e) {
+        existingSlots = [];
+      }
+    }
+
+    async function loadBookings() {
+      const tableEl = document.getElementById("bookings-table");
+      try {
+        const { bookings } = await api("/admin/bookings");
+        if (!bookings.length) {
+          tableEl.textContent = "No bookings yet.";
+          return;
+        }
+        const rows = bookings.map(b => `
+          <tr>
+            <td>${formatDate(b.start_time)} ${formatSlot(b.start_time)}</td>
+            <td>${b.email}</td>
+            <td>${b.discord_username}</td>
+            <td><button class="danger" data-id="${b.id}">Cancel</button></td>
+          </tr>
+        `).join("");
+        tableEl.innerHTML = `
+          <table>
+            <thead><tr><th>Time</th><th>Email</th><th>Discord</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+        tableEl.querySelectorAll("button[data-id]").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            if (!confirm("Cancel this booking?")) return;
+            try {
+              await api(`/bookings/${btn.dataset.id}/cancel`, {
+                method: "POST",
+                body: JSON.stringify({}),
+              });
+              await refresh();
+            } catch (e) {
+              showBanner(document.getElementById("banner"), "error", e.message);
+            }
+          });
+        });
+      } catch (e) {
+        tableEl.textContent = `Failed to load bookings: ${e.message}`;
+      }
+    }
+
+    async function refresh() {
+      await loadExisting();
+      await loadBookings();
+      renderGrid();
+    }
+
+    document.getElementById("save-btn").addEventListener("click", async () => {
+      const banner = document.getElementById("banner");
+      hideBanner(banner);
+      const weekStartStr = document.getElementById("week-start").value;
+      const weekStart = new Date(weekStartStr + "T00:00:00");
+      const duration = cfg.booking_duration_minutes;
+
+      const toAdd = [];
+      for (const key of selectedCells) {
+        const [dStr, mStr] = key.split(":");
+        const { start, end } = cellTimes(weekStart, parseInt(dStr), parseInt(mStr), duration);
+        toAdd.push({ start_time: start.toISOString(), end_time: end.toISOString() });
+      }
+      const toRemove = Array.from(removeCells).map(Number);
+
+      try {
+        if (toAdd.length) {
+          await api("/timeslots/add", {
+            method: "POST",
+            body: JSON.stringify({ slots: toAdd }),
+          });
+        }
+        if (toRemove.length) {
+          await api("/timeslots/remove", {
+            method: "POST",
+            body: JSON.stringify({ slot_ids: toRemove }),
+          });
+        }
+        selectedCells.clear();
+        removeCells.clear();
+        showBanner(banner, "success", `Saved: +${toAdd.length} added, -${toRemove.length} removed`);
+        await refresh();
+      } catch (e) {
+        showBanner(banner, "error", e.message);
+      }
+    });
+
+    document.getElementById("clear-btn").addEventListener("click", () => {
+      selectedCells.clear();
+      removeCells.clear();
+      renderGrid();
+    });
+
+    document.getElementById("week-start").addEventListener("change", renderGrid);
+
+    async function init() {
+      cfg = await fetch("api/config").then(r => r.json());
+      if (!requireAuth(cfg.clark_login_url)) return;
+      document.getElementById("duration-label").textContent = cfg.booking_duration_minutes;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const day = today.getDay();
+      today.setDate(today.getDate() - day);
+      document.getElementById("week-start").value = today.toISOString().slice(0, 10);
+      await refresh();
+    }
+
+    init();
+  </script>
+</body>
+</html>

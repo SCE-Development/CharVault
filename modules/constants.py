@@ -2,6 +2,7 @@ import os
 
 SQLITE_FILE = os.environ.get("SQLITE_FILE", "charlendar.db")
 CLARK_API_URL = os.environ.get("CLARK_API_URL", "http://localhost:8080")
+CLARK_LOGIN_URL = os.environ.get("CLARK_LOGIN_URL", "/login")
 ROOT_PATH = os.environ.get("ROOT_PATH", "/bookings")
 HMAC_SECRET = os.environ.get("HMAC_SECRET", "dev-secret-change-me")
 

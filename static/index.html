@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SCE Internship Interview Booking</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1 id="title">Book an interview</h1>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <section id="picker">
+    <h2>Available times</h2>
+    <div id="slots">Loading…</div>
+  </section>
+
+  <section id="form-section" hidden>
+    <h2>Confirm your booking</h2>
+    <p id="selected-slot-label"></p>
+    <form id="booking-form">
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required />
+      </div>
+      <div class="field">
+        <label for="discord">Discord username</label>
+        <input id="discord" name="discord" type="text" required />
+      </div>
+      <button type="submit" class="primary" id="submit-btn">Book</button>
+      <button type="button" id="cancel-btn">Change time</button>
+    </form>
+  </section>
+
+  <section id="confirmation" hidden>
+    <h2>Booking confirmed</h2>
+    <p id="confirmation-details"></p>
+    <p>A confirmation email with reschedule/cancel options will be sent to you.</p>
+  </section>
+
+  <script src="app.js"></script>
+  <script>
+    let cfg = null;
+    let selectedSlotId = null;
+
+    async function init() {
+      cfg = await fetch("api/config").then(r => r.json());
+      document.getElementById("title").textContent = `Book a ${cfg.event_name}`;
+      if (!requireAuth(cfg.clark_login_url)) return;
+      await loadSlots();
+    }
+
+    async function loadSlots() {
+      const slotsEl = document.getElementById("slots");
+      try {
+        const { slots } = await api("/timeslots");
+        if (!slots.length) {
+          slotsEl.textContent = "No available times right now. Check back later.";
+          return;
+        }
+        slotsEl.innerHTML = "";
+        const groups = groupByDay(slots);
+        for (const [day, daySlots] of Object.entries(groups)) {
+          const group = document.createElement("div");
+          group.className = "day-group";
+          const h3 = document.createElement("h3");
+          h3.textContent = day;
+          group.appendChild(h3);
+          const list = document.createElement("div");
+          list.className = "slot-list";
+          for (const slot of daySlots) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "slot";
+            btn.textContent = `${formatSlot(slot.start_time)} – ${formatSlot(slot.end_time)}`;
+            btn.onclick = () => selectSlot(slot);
+            list.appendChild(btn);
+          }
+          group.appendChild(list);
+          group.dataset.day = day;
+          slotsEl.appendChild(group);
+        }
+      } catch (e) {
+        showBanner(document.getElementById("banner"), "error", e.message);
+      }
+    }
+
+    function selectSlot(slot) {
+      selectedSlotId = slot.id;
+      document.querySelectorAll(".slot").forEach(b => b.classList.remove("selected"));
+      event.currentTarget.classList.add("selected");
+      document.getElementById("form-section").hidden = false;
+      document.getElementById("selected-slot-label").textContent =
+        `${formatDate(slot.start_time)} at ${formatSlot(slot.start_time)}`;
+      document.getElementById("form-section").scrollIntoView({ behavior: "smooth" });
+    }
+
+    document.getElementById("booking-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const banner = document.getElementById("banner");
+      hideBanner(banner);
+      const submitBtn = document.getElementById("submit-btn");
+      submitBtn.disabled = true;
+      try {
+        const body = {
+          time_slot_id: selectedSlotId,
+          email: document.getElementById("email").value,
+          discord_username: document.getElementById("discord").value,
+        };
+        const result = await api("/bookings", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        document.getElementById("picker").hidden = true;
+        document.getElementById("form-section").hidden = true;
+        document.getElementById("confirmation").hidden = false;
+        document.getElementById("confirmation-details").textContent =
+          `${formatDate(result.booking.start_time)} at ${formatSlot(result.booking.start_time)} — ${result.booking.email}`;
+      } catch (e) {
+        showBanner(banner, "error", e.message);
+        submitBtn.disabled = false;
+      }
+    });
+
+    document.getElementById("cancel-btn").addEventListener("click", () => {
+      selectedSlotId = null;
+      document.querySelectorAll(".slot").forEach(b => b.classList.remove("selected"));
+      document.getElementById("form-section").hidden = true;
+    });
+
+    init();
+  </script>
+</body>
+</html>

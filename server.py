@@ -1,11 +1,15 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import uvicorn
 
 from modules.auth import require_auth, verify_auth_header
 from modules.constants import (
+    BOOKING_DURATION_MINUTES,
+    CLARK_LOGIN_URL,
     EVENT_NAME,
     MEMBERSHIP_ADMIN,
     MEMBERSHIP_MEMBER,
@@ -78,6 +82,15 @@ def health():
     return {"status": "ok", "event": EVENT_NAME}
 
 
+@app.get("/api/config")
+def config():
+    return {
+        "event_name": EVENT_NAME,
+        "booking_duration_minutes": BOOKING_DURATION_MINUTES,
+        "clark_login_url": CLARK_LOGIN_URL,
+    }
+
+
 @app.get("/api/timeslots")
 def list_timeslots(_user: dict = Depends(require_auth(MEMBERSHIP_MEMBER))):
     return {"slots": get_available_time_slots(SQLITE_FILE)}
@@ -125,6 +138,19 @@ def admin_list_bookings(_admin: dict = Depends(require_auth(MEMBERSHIP_ADMIN))):
     return {"bookings": get_all_bookings(SQLITE_FILE)}
 
 
+@app.get("/api/bookings/{booking_id}")
+def fetch_booking(
+    booking_id: int,
+    token: str | None = None,
+    authorization: str | None = Header(default=None),
+):
+    booking = get_booking(SQLITE_FILE, booking_id)
+    if not booking:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Booking not found")
+    _authorize_manage(booking_id, token, authorization)
+    return {"booking": booking}
+
+
 @app.post("/api/bookings/{booking_id}/cancel")
 def cancel_booking(
     booking_id: int,
@@ -155,6 +181,13 @@ def reschedule_booking(
             status.HTTP_409_CONFLICT, "New time slot unavailable or already booked"
         )
     return {"booking": get_booking(SQLITE_FILE, booking_id)}
+
+
+app.mount(
+    "/",
+    StaticFiles(directory=Path(__file__).parent / "static", html=True),
+    name="static",
+)
 
 
 if __name__ == "__main__":
