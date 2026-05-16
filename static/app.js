@@ -1,34 +1,40 @@
-const JWT_KEY = "jwtToken";
+const ADMIN_KEY_STORAGE = "adminKey";
 
-function getToken() {
-  return window.localStorage.getItem(JWT_KEY);
+function getAdminKey() {
+  return window.localStorage.getItem(ADMIN_KEY_STORAGE) || "";
 }
 
-function requireAuth(loginUrl) {
-  const token = getToken();
-  if (!token) {
-    const redirect = encodeURIComponent(window.location.href);
-    window.location.href = `${loginUrl}?redirect=${redirect}`;
-    return null;
-  }
-  return token;
+function setAdminKey(key) {
+  window.localStorage.setItem(ADMIN_KEY_STORAGE, key);
+}
+
+function clearAdminKey() {
+  window.localStorage.removeItem(ADMIN_KEY_STORAGE);
 }
 
 async function api(path, options = {}) {
-  const token = getToken();
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers || {}),
   };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
   const resp = await fetch(`api${path}`, { ...options, headers });
   const text = await resp.text();
   const body = text ? JSON.parse(text) : null;
   if (!resp.ok) {
     const msg = (body && body.detail) || resp.statusText;
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.status = resp.status;
+    throw err;
   }
   return body;
+}
+
+async function adminApi(path, options = {}) {
+  const headers = {
+    "X-Admin-Key": getAdminKey(),
+    ...(options.headers || {}),
+  };
+  return api(path, { ...options, headers });
 }
 
 function showBanner(el, type, message) {

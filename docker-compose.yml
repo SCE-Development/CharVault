@@ -5,10 +5,9 @@ services:
       - "9191:9191"
     environment:
       SQLITE_FILE: /data/charlendar.db
-      CLARK_API_URL: ${CLARK_API_URL:-http://host.docker.internal:3000}
-      CLARK_LOGIN_URL: ${CLARK_LOGIN_URL:-/login}
       ROOT_PATH: ${ROOT_PATH:-/bookings}
       HMAC_SECRET: ${HMAC_SECRET:-dev-secret-change-me}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key-change-me}
       BOOKING_DURATION_MINUTES: ${BOOKING_DURATION_MINUTES:-60}
     volumes:
       - charlendar-data:/data

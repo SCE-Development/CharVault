@@ -71,12 +71,6 @@
       document.getElementById("reschedule").hidden = false;
       const slotsEl = document.getElementById("slots");
       try {
-        // Reschedule needs a JWT to list available slots
-        const jwt = getToken();
-        if (!jwt) {
-          slotsEl.textContent = "You need to be logged in to see available times. Cancelling and rebooking is also an option.";
-          return;
-        }
         const { slots } = await api("/timeslots");
         if (!slots.length) {
           slotsEl.textContent = "No other times available.";

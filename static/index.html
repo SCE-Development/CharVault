@@ -47,7 +47,6 @@
     async function init() {
       cfg = await fetch("api/config").then(r => r.json());
       document.getElementById("title").textContent = `Book a ${cfg.event_name}`;
-      if (!requireAuth(cfg.clark_login_url)) return;
       await loadSlots();
     }
 
