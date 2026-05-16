@@ -42,7 +42,7 @@
   <script src="app.js"></script>
   <script>
     let cfg = null;
-    let selectedSlotId = null;
+    let selectedSlot = null;
 
     async function init() {
       cfg = await fetch("api/config").then(r => r.json());
@@ -73,7 +73,7 @@
             btn.type = "button";
             btn.className = "slot";
             btn.textContent = `${formatSlot(slot.start_time)} – ${formatSlot(slot.end_time)}`;
-            btn.onclick = () => selectSlot(slot);
+            btn.onclick = (ev) => selectSlot(slot, ev.currentTarget);
             list.appendChild(btn);
           }
           group.appendChild(list);
@@ -85,10 +85,10 @@
       }
     }
 
-    function selectSlot(slot) {
-      selectedSlotId = slot.id;
+    function selectSlot(slot, btn) {
+      selectedSlot = slot;
       document.querySelectorAll(".slot").forEach(b => b.classList.remove("selected"));
-      event.currentTarget.classList.add("selected");
+      btn.classList.add("selected");
       document.getElementById("form-section").hidden = false;
       document.getElementById("selected-slot-label").textContent =
         `${formatDate(slot.start_time)} at ${formatSlot(slot.start_time)}`;
@@ -103,7 +103,8 @@
       submitBtn.disabled = true;
       try {
         const body = {
-          time_slot_id: selectedSlotId,
+          start_time: selectedSlot.start_time,
+          end_time: selectedSlot.end_time,
           email: document.getElementById("email").value,
           discord_username: document.getElementById("discord").value,
         };
@@ -123,7 +124,7 @@
     });
 
     document.getElementById("cancel-btn").addEventListener("click", () => {
-      selectedSlotId = null;
+      selectedSlot = null;
       document.querySelectorAll(".slot").forEach(b => b.classList.remove("selected"));
       document.getElementById("form-section").hidden = true;
     });

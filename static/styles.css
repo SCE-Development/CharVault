@@ -175,3 +175,9 @@ th {
 .grid-cell.existing {
   background: #d6eaf8;
 }
+
+.grid-cell.past {
+  background: #f0f0f0;
+  color: #aaa;
+  cursor: not-allowed;
+}

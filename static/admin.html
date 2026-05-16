@@ -23,12 +23,17 @@
 
   <section id="app-section" hidden>
     <div style="display: flex; justify-content: space-between; align-items: center;">
-      <h2>Time slots</h2>
+      <h2>Your availability</h2>
       <button id="signout-btn">Sign out</button>
+    </div>
+    <div class="field">
+      <label for="interviewer-name">Your name (shown only on calendar invites)</label>
+      <input id="interviewer-name" type="text" placeholder="e.g. Alice" required />
     </div>
     <p>
       Drag to select windows. Each cell is one <span id="duration-label"></span>-minute slot.
-      Blue cells are existing slots — click them to mark for removal (turns red).
+      Blue cells are your existing slots — click them to mark for removal (turns red).
+      Grey cells are in the past.
     </p>
     <div class="field">
       <label for="week-start">Week starting</label>
@@ -40,14 +45,14 @@
       <button id="clear-btn">Clear selection</button>
     </div>
 
-    <h2 style="margin-top: 2rem;">Bookings</h2>
+    <h2 style="margin-top: 2rem;">All bookings</h2>
     <div id="bookings-table">Loading…</div>
   </section>
 
   <script src="app.js"></script>
   <script>
     let cfg = null;
-    let existingSlots = [];
+    let myExistingSlots = [];
     let selectedCells = new Set();
     let removeCells = new Set();
     let dragMode = null;
@@ -72,7 +77,7 @@
 
     function findExistingSlot(weekStart, dayIdx, minuteOffset, duration) {
       const { start } = cellTimes(weekStart, dayIdx, minuteOffset, duration);
-      return existingSlots.find(s => new Date(s.start_time).getTime() === start.getTime());
+      return myExistingSlots.find(s => new Date(s.start_time).getTime() === start.getTime());
     }
 
     function renderGrid() {
@@ -112,34 +117,40 @@
           const key = cellKey(d, m);
           cell.dataset.key = key;
 
+          const { start } = cellTimes(weekStart, d, m, duration);
+          const isPast = start.getTime() <= Date.now();
           const existing = findExistingSlot(weekStart, d, m, duration);
           if (existing) {
             cell.classList.add("existing");
             cell.dataset.existingId = existing.id;
+          } else if (isPast) {
+            cell.classList.add("past");
           }
           if (selectedCells.has(key)) cell.classList.add("selected");
           if (existing && removeCells.has(String(existing.id))) cell.style.background = "#fdecea";
 
-          cell.addEventListener("mousedown", (e) => {
-            e.preventDefault();
-            if (existing) {
-              const id = String(existing.id);
-              if (removeCells.has(id)) {
-                removeCells.delete(id);
-                cell.style.background = "";
-              } else {
-                removeCells.add(id);
-                cell.style.background = "#fdecea";
+          if (!isPast || existing) {
+            cell.addEventListener("mousedown", (e) => {
+              e.preventDefault();
+              if (existing) {
+                const id = String(existing.id);
+                if (removeCells.has(id)) {
+                  removeCells.delete(id);
+                  cell.style.background = "";
+                } else {
+                  removeCells.add(id);
+                  cell.style.background = "#fdecea";
+                }
+                return;
               }
-              return;
-            }
-            dragMode = selectedCells.has(key) ? "unselect" : "select";
-            applyDrag(cell, key);
-          });
-          cell.addEventListener("mouseover", () => {
-            if (!dragMode || existing) return;
-            applyDrag(cell, key);
-          });
+              dragMode = selectedCells.has(key) ? "unselect" : "select";
+              applyDrag(cell, key);
+            });
+            cell.addEventListener("mouseover", () => {
+              if (!dragMode || existing) return;
+              applyDrag(cell, key);
+            });
+          }
           grid.appendChild(cell);
         }
       }
@@ -158,11 +169,21 @@
     document.addEventListener("mouseup", () => { dragMode = null; });
 
     async function loadExisting() {
+      const name = document.getElementById("interviewer-name").value.trim();
+      if (!name) {
+        myExistingSlots = [];
+        return;
+      }
       try {
-        const { slots } = await api("/timeslots");
-        existingSlots = slots;
+        const { slots } = await adminApi(`/admin/timeslots?interviewer_name=${encodeURIComponent(name)}`);
+        myExistingSlots = slots;
       } catch (e) {
-        existingSlots = [];
+        if (e.status === 403) {
+          clearAdminKey();
+          showKeyForm("Invalid admin key. Try again.");
+          throw e;
+        }
+        myExistingSlots = [];
       }
     }
 
@@ -175,26 +196,80 @@
           return;
         }
         const rows = bookings.map(b => `
-          <tr>
+          <tr data-row-id="${b.id}">
             <td>${formatDate(b.start_time)} ${formatSlot(b.start_time)}</td>
+            <td>
+              <span class="interviewer-label">${b.interviewer_name}</span>
+              <div class="reassign-controls" hidden>
+                <select class="reassign-select"></select>
+                <button class="reassign-confirm">Confirm</button>
+                <button class="reassign-cancel">×</button>
+              </div>
+            </td>
             <td>${b.email}</td>
             <td>${b.discord_username}</td>
-            <td><button class="danger" data-id="${b.id}">Cancel</button></td>
+            <td>
+              <button class="reassign-btn" data-id="${b.id}">Reassign</button>
+              <button class="danger cancel-btn" data-id="${b.id}">Cancel</button>
+            </td>
           </tr>
         `).join("");
         tableEl.innerHTML = `
           <table>
-            <thead><tr><th>Time</th><th>Email</th><th>Discord</th><th></th></tr></thead>
+            <thead><tr><th>Time</th><th>Interviewer</th><th>Email</th><th>Discord</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         `;
-        tableEl.querySelectorAll("button[data-id]").forEach(btn => {
+        tableEl.querySelectorAll(".cancel-btn").forEach(btn => {
           btn.addEventListener("click", async () => {
             if (!confirm("Cancel this booking?")) return;
             try {
               await adminApi(`/bookings/${btn.dataset.id}/cancel`, {
                 method: "POST",
                 body: JSON.stringify({}),
+              });
+              await refresh();
+            } catch (e) {
+              showBanner(document.getElementById("banner"), "error", e.message);
+            }
+          });
+        });
+        tableEl.querySelectorAll(".reassign-btn").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const row = btn.closest("tr");
+            const controls = row.querySelector(".reassign-controls");
+            const select = row.querySelector(".reassign-select");
+            const banner = document.getElementById("banner");
+            try {
+              const { interviewer_names } = await adminApi(`/admin/bookings/${btn.dataset.id}/alternates`);
+              if (!interviewer_names.length) {
+                showBanner(banner, "error", "No other interviewers are free at this time.");
+                return;
+              }
+              select.innerHTML = interviewer_names.map(n => `<option value="${n}">${n}</option>`).join("");
+              row.querySelector(".interviewer-label").hidden = true;
+              controls.hidden = false;
+            } catch (e) {
+              showBanner(banner, "error", e.message);
+            }
+          });
+        });
+        tableEl.querySelectorAll(".reassign-cancel").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const row = btn.closest("tr");
+            row.querySelector(".reassign-controls").hidden = true;
+            row.querySelector(".interviewer-label").hidden = false;
+          });
+        });
+        tableEl.querySelectorAll(".reassign-confirm").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const row = btn.closest("tr");
+            const bookingId = row.dataset.rowId;
+            const name = row.querySelector(".reassign-select").value;
+            try {
+              await adminApi(`/admin/bookings/${bookingId}/reassign`, {
+                method: "POST",
+                body: JSON.stringify({ new_interviewer_name: name }),
               });
               await refresh();
             } catch (e) {
@@ -213,7 +288,9 @@
     }
 
     async function refresh() {
-      await loadExisting();
+      try {
+        await loadExisting();
+      } catch { return; }
       await loadBookings();
       renderGrid();
     }
@@ -221,6 +298,11 @@
     document.getElementById("save-btn").addEventListener("click", async () => {
       const banner = document.getElementById("banner");
       hideBanner(banner);
+      const name = document.getElementById("interviewer-name").value.trim();
+      if (!name) {
+        showBanner(banner, "error", "Please enter your name first.");
+        return;
+      }
       const weekStartStr = document.getElementById("week-start").value;
       const weekStart = new Date(weekStartStr + "T00:00:00");
       const duration = cfg.booking_duration_minutes;
@@ -237,7 +319,7 @@
         if (toAdd.length) {
           await adminApi("/timeslots/add", {
             method: "POST",
-            body: JSON.stringify({ slots: toAdd }),
+            body: JSON.stringify({ interviewer_name: name, slots: toAdd }),
           });
         }
         if (toRemove.length) {
@@ -268,6 +350,11 @@
 
     document.getElementById("week-start").addEventListener("change", renderGrid);
 
+    document.getElementById("interviewer-name").addEventListener("change", async (e) => {
+      setInterviewerName(e.target.value.trim());
+      await refresh();
+    });
+
     document.getElementById("signout-btn").addEventListener("click", () => {
       clearAdminKey();
       showKeyForm(null);
@@ -297,6 +384,7 @@
       document.getElementById("app-section").hidden = false;
       cfg = await fetch("api/config").then(r => r.json());
       document.getElementById("duration-label").textContent = cfg.booking_duration_minutes;
+      document.getElementById("interviewer-name").value = getInterviewerName();
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const day = today.getDay();
