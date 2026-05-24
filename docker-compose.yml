@@ -1,10 +1,22 @@
-version: "3.9"
 services:
-  frontend:
-    build:
-      context: .
-      dockerfile: ./docker/frontend.Dockerfile
+  charlendar:
+    build: .
     ports:
-      - "3000:3000"   # use 3000:3000 if 3000 is free
+      - "9191:9191"
     environment:
-      NODE_ENV: production
+      SQLITE_FILE: /data/charlendar.db
+      ROOT_PATH: ${ROOT_PATH:-}
+      HMAC_SECRET: ${HMAC_SECRET:-dev-secret-change-me}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key-change-me}
+      BOOKING_DURATION_MINUTES: ${BOOKING_DURATION_MINUTES:-60}
+      GOOGLE_TOKEN_FILE: ${GOOGLE_TOKEN_FILE:-/secrets/token.json}
+      GOOGLE_SENDER_EMAIL: ${GOOGLE_SENDER_EMAIL:-}
+      GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID:-primary}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:9191}
+    volumes:
+      - charlendar-data:/data
+      - ./secrets:/secrets
+    restart: unless-stopped
+
+volumes:
+  charlendar-data:

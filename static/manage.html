@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manage booking</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>Manage your booking</h1>
+  <div id="banner" class="banner" hidden></div>
+
+  <section id="loading">Loading…</section>
+
+  <section id="details" hidden>
+    <p id="current-slot"></p>
+    <div style="display: flex; gap: 0.5rem;">
+      <button id="reschedule-btn">Reschedule</button>
+      <button id="cancel-btn" class="danger">Cancel booking</button>
+    </div>
+  </section>
+
+  <section id="reschedule" hidden style="margin-top: 1.5rem;">
+    <h2>Pick a new time</h2>
+    <div id="slots">Loading…</div>
+  </section>
+
+  <section id="done" hidden>
+    <h2 id="done-title"></h2>
+    <p id="done-message"></p>
+  </section>
+
+  <script src="app.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const bookingId = params.get("id");
+    const token = params.get("token");
+
+    async function showBooking() {
+      try {
+        const resp = await fetch(`api/bookings/${bookingId}?token=${encodeURIComponent(token)}`);
+        if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+        const { booking } = await resp.json();
+        document.getElementById("loading").hidden = true;
+        document.getElementById("details").hidden = false;
+        document.getElementById("current-slot").textContent =
+          `Current booking: ${formatDate(booking.start_time)} at ${formatSlot(booking.start_time)} (${booking.email})`;
+      } catch (e) {
+        document.getElementById("loading").hidden = true;
+        showBanner(document.getElementById("banner"), "error", e.message);
+      }
+    }
+
+    document.getElementById("cancel-btn").addEventListener("click", async () => {
+      if (!confirm("Cancel this booking? This cannot be undone.")) return;
+      try {
+        await fetch(`api/bookings/${bookingId}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        }).then(async r => {
+          if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+        });
+        showDone("Booking cancelled", "Your booking has been cancelled.");
+      } catch (e) {
+        showBanner(document.getElementById("banner"), "error", e.message);
+      }
+    });
+
+    document.getElementById("reschedule-btn").addEventListener("click", async () => {
+      document.getElementById("reschedule").hidden = false;
+      const slotsEl = document.getElementById("slots");
+      try {
+        const { slots } = await api("/timeslots");
+        if (!slots.length) {
+          slotsEl.textContent = "No other times available.";
+          return;
+        }
+        slotsEl.innerHTML = "";
+        const groups = groupByDay(slots);
+        for (const [day, daySlots] of Object.entries(groups)) {
+          const group = document.createElement("div");
+          group.className = "day-group";
+          const h3 = document.createElement("h3");
+          h3.textContent = day;
+          group.appendChild(h3);
+          const list = document.createElement("div");
+          list.className = "slot-list";
+          for (const slot of daySlots) {
+            const btn = document.createElement("button");
+            btn.className = "slot";
+            btn.textContent = `${formatSlot(slot.start_time)} – ${formatSlot(slot.end_time)}`;
+            btn.onclick = () => reschedule(slot);
+            list.appendChild(btn);
+          }
+          group.appendChild(list);
+          slotsEl.appendChild(group);
+        }
+      } catch (e) {
+        slotsEl.textContent = `Failed to load: ${e.message}`;
+      }
+    });
+
+    async function reschedule(slot) {
+      try {
+        const resp = await fetch(`api/bookings/${bookingId}/reschedule`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            new_start_time: slot.start_time,
+            new_end_time: slot.end_time,
+            token,
+          }),
+        });
+        if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+        showDone("Booking rescheduled", `Your new time is ${formatDate(slot.start_time)} at ${formatSlot(slot.start_time)}.`);
+      } catch (e) {
+        showBanner(document.getElementById("banner"), "error", e.message);
+      }
+    }
+
+    function showDone(title, msg) {
+      document.getElementById("details").hidden = true;
+      document.getElementById("reschedule").hidden = true;
+      document.getElementById("done").hidden = false;
+      document.getElementById("done-title").textContent = title;
+      document.getElementById("done-message").textContent = msg;
+    }
+
+    if (!bookingId || !token) {
+      document.getElementById("loading").hidden = true;
+      showBanner(document.getElementById("banner"), "error", "Missing booking id or token in URL.");
+    } else {
+      showBooking();
+    }
+  </script>
+</body>
+</html>

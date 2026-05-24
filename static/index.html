@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SCE Internship Interview Booking</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1 id="title">Book an interview</h1>
+    <a href="admin"><button>Admin dashboard</button></a>
+  </div>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <section id="picker">
+    <h2>Available times</h2>
+    <div id="slots">Loading…</div>
+  </section>
+
+  <section id="form-section" hidden>
+    <h2>Confirm your booking</h2>
+    <p id="selected-slot-label"></p>
+    <form id="booking-form">
+      <div class="field">
+        <label for="name">Name</label>
+        <input id="name" name="name" type="text" />
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" />
+      </div>
+      <div class="field">
+        <label for="discord">Discord username</label>
+        <input id="discord" name="discord" type="text" />
+      </div>
+      <div class="field">
+        <div style="display: flex; gap: 0.5rem; align-items: flex-start;">
+          <input id="ack" type="checkbox" style="width: auto; flex: 0 0 auto; margin: 0.25rem 0 0 0; padding: 0;" />
+          <label for="ack" style="font-weight: normal; margin: 0;">
+            I completed the git proficiency check before scheduling this interview.
+          </label>
+        </div>
+        <div style="font-size: 0.9em; color: #555; margin-top: 0.5rem;">
+          Completed means:
+          <ol style="margin: 0.25rem 0 0 1.25rem; padding: 0;">
+            <li>Followed the guide at <a href="https://github.com/SCE-Development/git-workshop" target="_blank" rel="noopener">github.com/SCE-Development/git-workshop</a> and opened 3 PRs.</li>
+            <li>All 3 PRs got merged.</li>
+          </ol>
+        </div>
+      </div>
+      <button type="submit" class="primary" id="submit-btn" disabled>Book</button>
+      <button type="button" id="cancel-btn">Change time</button>
+    </form>
+  </section>
+
+  <section id="confirmation" hidden>
+    <h2>Booking confirmed</h2>
+    <p id="confirmation-details"></p>
+    <p>A confirmation email with reschedule/cancel options will be sent to you.</p>
+  </section>
+
+  <script src="app.js"></script>
+  <script>
+    let cfg = null;
+    let selectedSlot = null;
+
+    async function init() {
+      cfg = await fetch("api/config").then(r => r.json());
+      document.getElementById("title").textContent = `Book a ${cfg.event_name}`;
+      await loadSlots();
+    }
+
+    async function loadSlots() {
+      const slotsEl = document.getElementById("slots");
+      try {
+        const { slots } = await api("/timeslots");
+        if (!slots.length) {
+          slotsEl.textContent = "No available times right now. Check back later.";
+          return;
+        }
+        slotsEl.innerHTML = "";
+        const groups = groupByDay(slots);
+        for (const [day, daySlots] of Object.entries(groups)) {
+          const group = document.createElement("div");
+          group.className = "day-group";
+          const h3 = document.createElement("h3");
+          h3.textContent = day;
+          group.appendChild(h3);
+          const list = document.createElement("div");
+          list.className = "slot-list";
+          for (const slot of daySlots) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "slot";
+            btn.textContent = `${formatSlot(slot.start_time)} – ${formatSlot(slot.end_time)}`;
+            btn.onclick = (ev) => selectSlot(slot, ev.currentTarget);
+            list.appendChild(btn);
+          }
+          group.appendChild(list);
+          group.dataset.day = day;
+          slotsEl.appendChild(group);
+        }
+      } catch (e) {
+        showBanner(document.getElementById("banner"), "error", e.message);
+      }
+    }
+
+    function selectSlot(slot, btn) {
+      selectedSlot = slot;
+      document.querySelectorAll(".slot").forEach(b => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      document.getElementById("form-section").hidden = false;
+      document.getElementById("selected-slot-label").textContent =
+        `${formatDate(slot.start_time)} at ${formatSlot(slot.start_time)}`;
+      document.getElementById("form-section").scrollIntoView({ behavior: "smooth" });
+    }
+
+    document.getElementById("booking-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const banner = document.getElementById("banner");
+      hideBanner(banner);
+      const submitBtn = document.getElementById("submit-btn");
+      submitBtn.disabled = true;
+      try {
+        const body = {
+          start_time: selectedSlot.start_time,
+          end_time: selectedSlot.end_time,
+          name: document.getElementById("name").value,
+          email: document.getElementById("email").value,
+          discord_username: document.getElementById("discord").value,
+          acknowledged_git_workshop: document.getElementById("ack").checked,
+        };
+        const result = await api("/bookings", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        document.getElementById("picker").hidden = true;
+        document.getElementById("form-section").hidden = true;
+        document.getElementById("confirmation").hidden = false;
+        document.getElementById("confirmation-details").textContent =
+          `${formatDate(result.booking.start_time)} at ${formatSlot(result.booking.start_time)} — ${result.booking.email}`;
+      } catch (e) {
+        showBanner(banner, "error", e.message);
+        submitBtn.disabled = false;
+      }
+    });
+
+    document.getElementById("cancel-btn").addEventListener("click", () => {
+      selectedSlot = null;
+      document.querySelectorAll(".slot").forEach(b => b.classList.remove("selected"));
+      document.getElementById("form-section").hidden = true;
+    });
+
+    function updateSubmitEnabled() {
+      const name = document.getElementById("name").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const discord = document.getElementById("discord").value.trim();
+      const ack = document.getElementById("ack").checked;
+      document.getElementById("submit-btn").disabled = !(name && email && discord && ack);
+    }
+
+    ["name", "email", "discord"].forEach(id => {
+      document.getElementById(id).addEventListener("input", updateSubmitEnabled);
+    });
+    document.getElementById("ack").addEventListener("change", updateSubmitEnabled);
+
+    init();
+  </script>
+</body>
+</html>

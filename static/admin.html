@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin · SCE Internship Interview Booking</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>Admin</h1>
+    <a href="."><button>Home</button></a>
+  </div>
+  <div id="banner" class="banner" hidden></div>
+
+  <section id="key-section" hidden>
+    <h2>Admin key required</h2>
+    <p>Enter the admin API key to manage time slots and bookings.</p>
+    <form id="key-form">
+      <div class="field">
+        <input id="admin-key-input" type="password" placeholder="X-Admin-Key" required />
+      </div>
+      <button type="submit" class="primary">Continue</button>
+    </form>
+  </section>
+
+  <section id="app-section" hidden>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <h2>Your availability</h2>
+      <button id="signout-btn">Sign out</button>
+    </div>
+    <div class="field">
+      <label for="interviewer-name">Your name (shown only on calendar invites)</label>
+      <input id="interviewer-name" type="text" placeholder="e.g. Alice" required />
+    </div>
+    <div class="field">
+      <label for="interviewer-email">Your email (added as attendee on the calendar invite)</label>
+      <input id="interviewer-email" type="email" placeholder="alice@example.com" required />
+    </div>
+    <div class="field">
+      <label for="interviewer-discord">Your Discord username (shown to the interviewee on the calendar invite)</label>
+      <input id="interviewer-discord" type="text" placeholder="alice123" required />
+    </div>
+    <p>
+      Drag to select windows. Each cell is one <span id="duration-label"></span>-minute slot.
+      Blue cells are your existing slots — click them to mark for removal (turns red).
+      Grey cells are in the past.
+    </p>
+    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+      <button id="prev-week-btn">◀</button>
+      <strong id="week-label" style="min-width: 220px; text-align: center;"></strong>
+      <button id="next-week-btn">▶</button>
+    </div>
+    <div id="grid" class="grid"></div>
+    <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+      <button id="save-btn" class="primary">Save changes</button>
+      <button id="clear-btn">Clear selection</button>
+    </div>
+
+    <h2 style="margin-top: 2rem;">All bookings</h2>
+    <div id="bookings-table">Loading…</div>
+  </section>
+
+  <script src="app.js"></script>
+  <script>
+    let cfg = null;
+    let myExistingSlots = [];
+    let selectedCells = new Set();
+    let removeCells = new Set();
+    let dragMode = null;
+    let currentWeekStart = null;
+
+    const HOUR_START = 9;
+    const HOUR_END = 21;
+    const DAYS = 7;
+
+    function cellKey(dayIdx, minuteOffset) {
+      return `${dayIdx}:${minuteOffset}`;
+    }
+
+    function cellTimes(weekStart, dayIdx, minuteOffset, duration) {
+      const start = new Date(weekStart);
+      start.setDate(start.getDate() + dayIdx);
+      start.setHours(HOUR_START, 0, 0, 0);
+      start.setMinutes(minuteOffset);
+      const end = new Date(start);
+      end.setMinutes(end.getMinutes() + duration);
+      return { start, end };
+    }
+
+    function findExistingSlot(weekStart, dayIdx, minuteOffset, duration) {
+      const { start } = cellTimes(weekStart, dayIdx, minuteOffset, duration);
+      return myExistingSlots.find(s => new Date(s.start_time).getTime() === start.getTime());
+    }
+
+    function renderGrid() {
+      const grid = document.getElementById("grid");
+      if (!currentWeekStart) return;
+      const weekStart = currentWeekStart;
+      const duration = cfg.booking_duration_minutes;
+      updateWeekLabel(weekStart);
+
+      grid.innerHTML = "";
+
+      const corner = document.createElement("div");
+      corner.className = "grid-cell header";
+      grid.appendChild(corner);
+
+      for (let d = 0; d < DAYS; d++) {
+        const date = new Date(weekStart);
+        date.setDate(date.getDate() + d);
+        const header = document.createElement("div");
+        header.className = "grid-cell header";
+        header.textContent = date.toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" });
+        grid.appendChild(header);
+      }
+
+      const totalMinutes = (HOUR_END - HOUR_START) * 60;
+      for (let m = 0; m < totalMinutes; m += duration) {
+        const label = document.createElement("div");
+        label.className = "grid-cell label";
+        const hours = HOUR_START + Math.floor(m / 60);
+        const mins = m % 60;
+        label.textContent = `${hours}:${mins.toString().padStart(2, "0")}`;
+        grid.appendChild(label);
+
+        for (let d = 0; d < DAYS; d++) {
+          const cell = document.createElement("div");
+          cell.className = "grid-cell";
+          const key = cellKey(d, m);
+          cell.dataset.key = key;
+
+          const { start } = cellTimes(weekStart, d, m, duration);
+          const isPast = start.getTime() <= Date.now();
+          const existing = findExistingSlot(weekStart, d, m, duration);
+          if (existing) {
+            cell.classList.add("existing");
+            cell.dataset.existingId = existing.id;
+          } else if (isPast) {
+            cell.classList.add("past");
+          }
+          if (selectedCells.has(key)) cell.classList.add("selected");
+          if (existing && removeCells.has(String(existing.id))) cell.style.background = "#fdecea";
+
+          if (!isPast || existing) {
+            cell.addEventListener("mousedown", (e) => {
+              e.preventDefault();
+              if (existing) {
+                const id = String(existing.id);
+                if (removeCells.has(id)) {
+                  removeCells.delete(id);
+                  cell.style.background = "";
+                } else {
+                  removeCells.add(id);
+                  cell.style.background = "#fdecea";
+                }
+                return;
+              }
+              dragMode = selectedCells.has(key) ? "unselect" : "select";
+              applyDrag(cell, key);
+            });
+            cell.addEventListener("mouseover", () => {
+              if (!dragMode || existing) return;
+              applyDrag(cell, key);
+            });
+          }
+          grid.appendChild(cell);
+        }
+      }
+    }
+
+    function applyDrag(cell, key) {
+      if (dragMode === "select") {
+        selectedCells.add(key);
+        cell.classList.add("selected");
+      } else {
+        selectedCells.delete(key);
+        cell.classList.remove("selected");
+      }
+    }
+
+    function updateWeekLabel(weekStart) {
+      const end = new Date(weekStart);
+      end.setDate(end.getDate() + 6);
+      const fmt = (d) => d.toLocaleDateString([], { month: "short", day: "numeric" });
+      document.getElementById("week-label").textContent =
+        `${fmt(weekStart)} – ${fmt(end)}, ${weekStart.getFullYear()}`;
+    }
+
+    function shiftWeek(days) {
+      const next = new Date(currentWeekStart);
+      next.setDate(next.getDate() + days);
+      currentWeekStart = next;
+      selectedCells.clear();
+      removeCells.clear();
+      renderGrid();
+    }
+
+    document.addEventListener("mouseup", () => { dragMode = null; });
+
+    async function loadExisting() {
+      const email = document.getElementById("interviewer-email").value.trim();
+      if (!email) {
+        myExistingSlots = [];
+        return;
+      }
+      try {
+        const { slots } = await adminApi(`/admin/timeslots?interviewer_email=${encodeURIComponent(email)}`);
+        myExistingSlots = slots;
+      } catch (e) {
+        if (e.status === 403) {
+          clearAdminKey();
+          showKeyForm("Invalid admin key. Try again.");
+          throw e;
+        }
+        myExistingSlots = [];
+      }
+    }
+
+    async function loadBookings() {
+      const tableEl = document.getElementById("bookings-table");
+      try {
+        const { bookings } = await adminApi("/admin/bookings");
+        if (!bookings.length) {
+          tableEl.textContent = "No bookings yet.";
+          return;
+        }
+        const rows = bookings.map(b => `
+          <tr data-row-id="${b.id}">
+            <td>${formatDate(b.start_time)} ${formatSlot(b.start_time)}</td>
+            <td>
+              <span class="interviewer-label">${b.interviewer_name}</span>
+              <div class="reassign-controls" hidden>
+                <select class="reassign-select"></select>
+                <button class="reassign-confirm">Confirm</button>
+                <button class="reassign-cancel">×</button>
+              </div>
+            </td>
+            <td>${b.name}</td>
+            <td>${b.email}</td>
+            <td>${b.discord_username}</td>
+            <td>
+              <button class="reassign-btn" data-id="${b.id}">Reassign</button>
+              <button class="danger cancel-btn" data-id="${b.id}">Cancel</button>
+            </td>
+          </tr>
+        `).join("");
+        tableEl.innerHTML = `
+          <table>
+            <thead><tr><th>Time</th><th>Interviewer</th><th>Name</th><th>Email</th><th>Discord</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+        tableEl.querySelectorAll(".cancel-btn").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            if (!confirm("Cancel this booking?")) return;
+            try {
+              await adminApi(`/bookings/${btn.dataset.id}/cancel`, {
+                method: "POST",
+                body: JSON.stringify({}),
+              });
+              await refresh();
+            } catch (e) {
+              showBanner(document.getElementById("banner"), "error", e.message);
+            }
+          });
+        });
+        tableEl.querySelectorAll(".reassign-btn").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const row = btn.closest("tr");
+            const controls = row.querySelector(".reassign-controls");
+            const select = row.querySelector(".reassign-select");
+            const banner = document.getElementById("banner");
+            try {
+              const { alternates } = await adminApi(`/admin/bookings/${btn.dataset.id}/alternates`);
+              if (!alternates.length) {
+                showBanner(banner, "error", "No other interviewers are free at this time.");
+                return;
+              }
+              select.innerHTML = alternates.map(a =>
+                `<option value="${a.interviewer_email}">${a.interviewer_name} (${a.interviewer_email})</option>`
+              ).join("");
+              row.querySelector(".interviewer-label").hidden = true;
+              controls.hidden = false;
+            } catch (e) {
+              showBanner(banner, "error", e.message);
+            }
+          });
+        });
+        tableEl.querySelectorAll(".reassign-cancel").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const row = btn.closest("tr");
+            row.querySelector(".reassign-controls").hidden = true;
+            row.querySelector(".interviewer-label").hidden = false;
+          });
+        });
+        tableEl.querySelectorAll(".reassign-confirm").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const row = btn.closest("tr");
+            const bookingId = row.dataset.rowId;
+            const email = row.querySelector(".reassign-select").value;
+            try {
+              await adminApi(`/admin/bookings/${bookingId}/reassign`, {
+                method: "POST",
+                body: JSON.stringify({ new_interviewer_email: email }),
+              });
+              await refresh();
+            } catch (e) {
+              showBanner(document.getElementById("banner"), "error", e.message);
+            }
+          });
+        });
+      } catch (e) {
+        if (e.status === 403) {
+          clearAdminKey();
+          showKeyForm("Invalid admin key. Try again.");
+          return;
+        }
+        tableEl.textContent = `Failed to load bookings: ${e.message}`;
+      }
+    }
+
+    async function refresh() {
+      try {
+        await loadExisting();
+      } catch { return; }
+      await loadBookings();
+      renderGrid();
+    }
+
+    document.getElementById("save-btn").addEventListener("click", async () => {
+      const banner = document.getElementById("banner");
+      hideBanner(banner);
+      const name = document.getElementById("interviewer-name").value.trim();
+      const email = document.getElementById("interviewer-email").value.trim();
+      const discord = document.getElementById("interviewer-discord").value.trim();
+      if (!name || !email || !discord) {
+        showBanner(banner, "error", "Please enter your name, email, and Discord username first.");
+        return;
+      }
+      const weekStart = currentWeekStart;
+      const duration = cfg.booking_duration_minutes;
+
+      const toAdd = [];
+      for (const key of selectedCells) {
+        const [dStr, mStr] = key.split(":");
+        const { start, end } = cellTimes(weekStart, parseInt(dStr), parseInt(mStr), duration);
+        toAdd.push({ start_time: start.toISOString(), end_time: end.toISOString() });
+      }
+      const toRemove = Array.from(removeCells).map(Number);
+
+      try {
+        if (toAdd.length) {
+          await adminApi("/timeslots/add", {
+            method: "POST",
+            body: JSON.stringify({
+              interviewer_name: name,
+              interviewer_email: email,
+              interviewer_discord_username: discord,
+              slots: toAdd,
+            }),
+          });
+        }
+        if (toRemove.length) {
+          await adminApi("/timeslots/remove", {
+            method: "POST",
+            body: JSON.stringify({ slot_ids: toRemove }),
+          });
+        }
+        selectedCells.clear();
+        removeCells.clear();
+        showBanner(banner, "success", `Saved: +${toAdd.length} added, -${toRemove.length} removed`);
+        await refresh();
+      } catch (e) {
+        if (e.status === 403) {
+          clearAdminKey();
+          showKeyForm("Invalid admin key. Try again.");
+          return;
+        }
+        showBanner(banner, "error", e.message);
+      }
+    });
+
+    document.getElementById("clear-btn").addEventListener("click", () => {
+      selectedCells.clear();
+      removeCells.clear();
+      renderGrid();
+    });
+
+    document.getElementById("prev-week-btn").addEventListener("click", () => shiftWeek(-7));
+    document.getElementById("next-week-btn").addEventListener("click", () => shiftWeek(7));
+
+    document.getElementById("interviewer-name").addEventListener("change", async () => {
+      await refresh();
+    });
+
+    document.getElementById("interviewer-email").addEventListener("change", async () => {
+      await refresh();
+    });
+
+    document.getElementById("signout-btn").addEventListener("click", () => {
+      clearAdminKey();
+      window.location.href = ".";
+    });
+
+    document.getElementById("key-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const key = document.getElementById("admin-key-input").value.trim();
+      if (!key) return;
+      setAdminKey(key);
+      startApp();
+    });
+
+    function showKeyForm(errorMsg) {
+      document.getElementById("key-section").hidden = false;
+      document.getElementById("app-section").hidden = true;
+      const banner = document.getElementById("banner");
+      if (errorMsg) {
+        showBanner(banner, "error", errorMsg);
+      } else {
+        hideBanner(banner);
+      }
+    }
+
+    async function startApp() {
+      document.getElementById("key-section").hidden = true;
+      document.getElementById("app-section").hidden = false;
+      hideBanner(document.getElementById("banner"));
+      cfg = await fetch("api/config").then(r => r.json());
+      document.getElementById("duration-label").textContent = cfg.booking_duration_minutes;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      today.setDate(today.getDate() - today.getDay());
+      currentWeekStart = today;
+      await refresh();
+    }
+
+    if (getAdminKey()) {
+      startApp();
+    } else {
+      showKeyForm(null);
+    }
+  </script>
+</body>
+</html>
