@@ -9,7 +9,7 @@
 <body>
   <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1>Admin</h1>
-    <a href="index.html"><button>Home</button></a>
+    <a href="."><button>Home</button></a>
   </div>
   <div id="banner" class="banner" hidden></div>
 
@@ -32,6 +32,14 @@
     <div class="field">
       <label for="interviewer-name">Your name (shown only on calendar invites)</label>
       <input id="interviewer-name" type="text" placeholder="e.g. Alice" required />
+    </div>
+    <div class="field">
+      <label for="interviewer-email">Your email (added as attendee on the calendar invite)</label>
+      <input id="interviewer-email" type="email" placeholder="alice@example.com" required />
+    </div>
+    <div class="field">
+      <label for="interviewer-discord">Your Discord username (shown to the interviewee on the calendar invite)</label>
+      <input id="interviewer-discord" type="text" placeholder="alice123" required />
     </div>
     <p>
       Drag to select windows. Each cell is one <span id="duration-label"></span>-minute slot.
@@ -63,7 +71,7 @@
     let currentWeekStart = null;
 
     const HOUR_START = 9;
-    const HOUR_END = 18;
+    const HOUR_END = 21;
     const DAYS = 7;
 
     function cellKey(dayIdx, minuteOffset) {
@@ -191,13 +199,13 @@
     document.addEventListener("mouseup", () => { dragMode = null; });
 
     async function loadExisting() {
-      const name = document.getElementById("interviewer-name").value.trim();
-      if (!name) {
+      const email = document.getElementById("interviewer-email").value.trim();
+      if (!email) {
         myExistingSlots = [];
         return;
       }
       try {
-        const { slots } = await adminApi(`/admin/timeslots?interviewer_name=${encodeURIComponent(name)}`);
+        const { slots } = await adminApi(`/admin/timeslots?interviewer_email=${encodeURIComponent(email)}`);
         myExistingSlots = slots;
       } catch (e) {
         if (e.status === 403) {
@@ -228,6 +236,7 @@
                 <button class="reassign-cancel">×</button>
               </div>
             </td>
+            <td>${b.name}</td>
             <td>${b.email}</td>
             <td>${b.discord_username}</td>
             <td>
@@ -238,7 +247,7 @@
         `).join("");
         tableEl.innerHTML = `
           <table>
-            <thead><tr><th>Time</th><th>Interviewer</th><th>Email</th><th>Discord</th><th></th></tr></thead>
+            <thead><tr><th>Time</th><th>Interviewer</th><th>Name</th><th>Email</th><th>Discord</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         `;
@@ -263,12 +272,14 @@
             const select = row.querySelector(".reassign-select");
             const banner = document.getElementById("banner");
             try {
-              const { interviewer_names } = await adminApi(`/admin/bookings/${btn.dataset.id}/alternates`);
-              if (!interviewer_names.length) {
+              const { alternates } = await adminApi(`/admin/bookings/${btn.dataset.id}/alternates`);
+              if (!alternates.length) {
                 showBanner(banner, "error", "No other interviewers are free at this time.");
                 return;
               }
-              select.innerHTML = interviewer_names.map(n => `<option value="${n}">${n}</option>`).join("");
+              select.innerHTML = alternates.map(a =>
+                `<option value="${a.interviewer_email}">${a.interviewer_name} (${a.interviewer_email})</option>`
+              ).join("");
               row.querySelector(".interviewer-label").hidden = true;
               controls.hidden = false;
             } catch (e) {
@@ -287,11 +298,11 @@
           btn.addEventListener("click", async () => {
             const row = btn.closest("tr");
             const bookingId = row.dataset.rowId;
-            const name = row.querySelector(".reassign-select").value;
+            const email = row.querySelector(".reassign-select").value;
             try {
               await adminApi(`/admin/bookings/${bookingId}/reassign`, {
                 method: "POST",
-                body: JSON.stringify({ new_interviewer_name: name }),
+                body: JSON.stringify({ new_interviewer_email: email }),
               });
               await refresh();
             } catch (e) {
@@ -321,8 +332,10 @@
       const banner = document.getElementById("banner");
       hideBanner(banner);
       const name = document.getElementById("interviewer-name").value.trim();
-      if (!name) {
-        showBanner(banner, "error", "Please enter your name first.");
+      const email = document.getElementById("interviewer-email").value.trim();
+      const discord = document.getElementById("interviewer-discord").value.trim();
+      if (!name || !email || !discord) {
+        showBanner(banner, "error", "Please enter your name, email, and Discord username first.");
         return;
       }
       const weekStart = currentWeekStart;
@@ -340,7 +353,12 @@
         if (toAdd.length) {
           await adminApi("/timeslots/add", {
             method: "POST",
-            body: JSON.stringify({ interviewer_name: name, slots: toAdd }),
+            body: JSON.stringify({
+              interviewer_name: name,
+              interviewer_email: email,
+              interviewer_discord_username: discord,
+              slots: toAdd,
+            }),
           });
         }
         if (toRemove.length) {
@@ -376,9 +394,13 @@
       await refresh();
     });
 
+    document.getElementById("interviewer-email").addEventListener("change", async () => {
+      await refresh();
+    });
+
     document.getElementById("signout-btn").addEventListener("click", () => {
       clearAdminKey();
-      showKeyForm(null);
+      window.location.href = ".";
     });
 
     document.getElementById("key-form").addEventListener("submit", (e) => {
@@ -403,6 +425,7 @@
     async function startApp() {
       document.getElementById("key-section").hidden = true;
       document.getElementById("app-section").hidden = false;
+      hideBanner(document.getElementById("banner"));
       cfg = await fetch("api/config").then(r => r.json());
       document.getElementById("duration-label").textContent = cfg.booking_duration_minutes;
       const today = new Date();

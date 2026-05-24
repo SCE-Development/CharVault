@@ -3,3 +3,7 @@
 __pycache__/
 *.pyc
 *.db
+secrets/
+oauth_client.json
+token.json
+.env

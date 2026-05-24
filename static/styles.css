@@ -61,6 +61,11 @@ input, select {
   width: 100%;
 }
 
+input[type="checkbox"], input[type="radio"] {
+  width: auto;
+  padding: 0;
+}
+
 label {
   display: block;
   margin-bottom: 0.25rem;

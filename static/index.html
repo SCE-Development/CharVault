@@ -9,7 +9,7 @@
 <body>
   <div style="display: flex; justify-content: space-between; align-items: center;">
     <h1 id="title">Book an interview</h1>
-    <a href="admin.html"><button>Admin dashboard</button></a>
+    <a href="admin"><button>Admin dashboard</button></a>
   </div>
 
   <div id="banner" class="banner" hidden></div>
@@ -24,14 +24,33 @@
     <p id="selected-slot-label"></p>
     <form id="booking-form">
       <div class="field">
+        <label for="name">Name</label>
+        <input id="name" name="name" type="text" />
+      </div>
+      <div class="field">
         <label for="email">Email</label>
-        <input id="email" name="email" type="email" required />
+        <input id="email" name="email" type="email" />
       </div>
       <div class="field">
         <label for="discord">Discord username</label>
-        <input id="discord" name="discord" type="text" required />
+        <input id="discord" name="discord" type="text" />
       </div>
-      <button type="submit" class="primary" id="submit-btn">Book</button>
+      <div class="field">
+        <div style="display: flex; gap: 0.5rem; align-items: flex-start;">
+          <input id="ack" type="checkbox" style="width: auto; flex: 0 0 auto; margin: 0.25rem 0 0 0; padding: 0;" />
+          <label for="ack" style="font-weight: normal; margin: 0;">
+            I completed the git proficiency check before scheduling this interview.
+          </label>
+        </div>
+        <div style="font-size: 0.9em; color: #555; margin-top: 0.5rem;">
+          Completed means:
+          <ol style="margin: 0.25rem 0 0 1.25rem; padding: 0;">
+            <li>Followed the guide at <a href="https://github.com/SCE-Development/git-workshop" target="_blank" rel="noopener">github.com/SCE-Development/git-workshop</a> and opened 3 PRs.</li>
+            <li>All 3 PRs got merged.</li>
+          </ol>
+        </div>
+      </div>
+      <button type="submit" class="primary" id="submit-btn" disabled>Book</button>
       <button type="button" id="cancel-btn">Change time</button>
     </form>
   </section>
@@ -108,8 +127,10 @@
         const body = {
           start_time: selectedSlot.start_time,
           end_time: selectedSlot.end_time,
+          name: document.getElementById("name").value,
           email: document.getElementById("email").value,
           discord_username: document.getElementById("discord").value,
+          acknowledged_git_workshop: document.getElementById("ack").checked,
         };
         const result = await api("/bookings", {
           method: "POST",
@@ -131,6 +152,19 @@
       document.querySelectorAll(".slot").forEach(b => b.classList.remove("selected"));
       document.getElementById("form-section").hidden = true;
     });
+
+    function updateSubmitEnabled() {
+      const name = document.getElementById("name").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const discord = document.getElementById("discord").value.trim();
+      const ack = document.getElementById("ack").checked;
+      document.getElementById("submit-btn").disabled = !(name && email && discord && ack);
+    }
+
+    ["name", "email", "discord"].forEach(id => {
+      document.getElementById(id).addEventListener("input", updateSubmitEnabled);
+    });
+    document.getElementById("ack").addEventListener("change", updateSubmitEnabled);
 
     init();
   </script>
